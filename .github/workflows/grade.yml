@@ -1,0 +1,87 @@
+name: Grade an exercise
+
+on:
+  workflow_dispatch:
+    inputs:
+      grader-repo:
+        required: true
+        description: Grader repository to checkout first
+      student-login:
+        required: true
+        description: GitHub login of the student to grade
+      java-version:
+        description: Version of Java to setup before running the grader
+        default: '21'
+      callback-url:
+        required: true
+        description: Url to send the results back
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  grade:
+    runs-on: ubuntu-latest
+    steps:
+      - name: ⬇️ Checkout Grader
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ inputs.grader-repo }}
+
+      - name: 🗝️ Generate Korekto app token
+        id: korekto-token
+        uses: getsentry/action-github-app-token@v3
+        with:
+          app_id: ${{ vars.KOREKTO_APP_ID }}
+          private_key: ${{ secrets.KOREKTO_APP_PRIVATE_KEY }}
+
+      - name: ♨️ Setup Java ${{ inputs.java-version }}
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: ${{ inputs.java-version }}
+          cache: maven
+
+      - name: 💯 Grade, hoping for the best!
+        run: |
+          mvn compile exec:java -Dexec.args="-s=$STUDENT_LOGIN" -Dgithub_token="$KOREKTO_TOKEN"
+        env:
+          STUDENT_LOGIN: ${{ inputs.student-login }}
+          KOREKTO_TOKEN: ${{ steps.korekto-token.outputs.token }}
+
+      - name: 🗝️ Generate OIDC token to authenticate result request
+        id: oidc-token
+        uses: actions/github-script@v7
+        with:
+          result-encoding: string
+          script: return core.getIDToken()
+
+      - name: 📬 Send result to server
+        uses: actions/github-script@v7
+        env:
+          CALLBACK_URL: ${{ inputs.callback-url }}
+          OIDC_TOKEN: ${{ steps.oidc-token.outputs.result }}
+          STUDENT_LOGIN: ${{ inputs.student-login }}
+          GRADER_REPO: ${{ inputs.grader-repo }}
+        with:
+          script: |
+            const {
+              CALLBACK_URL,
+              OIDC_TOKEN,
+              STUDENT_LOGIN,
+              GRADER_REPO
+            } = process.env;
+
+            await fetch(CALLBACK_URL, {
+              method: 'POST',
+              body: JSON.stringify({
+                student_login: STUDENT_LOGIN,
+                grader_repo: GRADER_REPO,
+                full_log_url: 'https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}/job/${{ github.job }}'
+              }),
+              headers: {
+                'Authorization': `bearer ${OIDC_TOKEN}`,
+                'Content-type': "application/json; charset=UTF-8"
+              }
+            });
