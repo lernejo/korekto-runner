@@ -20,6 +20,9 @@ permissions:
   contents: read
   id-token: write
 
+env:
+  REPORT_PATH: /tmp/results.json
+
 jobs:
   grade:
     runs-on: ubuntu-latest
@@ -45,7 +48,7 @@ jobs:
 
       - name: 💯 Grade, hoping for the best!
         run: |
-          mvn compile exec:java -Dexec.args="-s=$STUDENT_LOGIN" -Dgithub_token="$KOREKTO_TOKEN"
+          mvn compile exec:java -Dexec.args="-s=$STUDENT_LOGIN -r=$REPORT_PATH" -Dgithub_token="$KOREKTO_TOKEN"
         env:
           STUDENT_LOGIN: ${{ inputs.student-login }}
           KOREKTO_TOKEN: ${{ steps.korekto-token.outputs.token }}
@@ -66,19 +69,25 @@ jobs:
           GRADER_REPO: ${{ inputs.grader-repo }}
         with:
           script: |
+            const fs = require('fs');
+
             const {
               CALLBACK_URL,
               OIDC_TOKEN,
               STUDENT_LOGIN,
-              GRADER_REPO
+              GRADER_REPO,
+              REPORT_PATH
             } = process.env;
+            
+            const result = JSON.parse(fs.readFileSync(REPORT_PATH));
 
             await fetch(CALLBACK_URL, {
               method: 'POST',
               body: JSON.stringify({
                 student_login: STUDENT_LOGIN,
                 grader_repo: GRADER_REPO,
-                full_log_url: 'https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}/job/${{ github.job }}'
+                full_log_url: 'https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}/job/${{ github.job }}',
+                ... result.details
               }),
               headers: {
                 'Authorization': `bearer ${OIDC_TOKEN}`,
