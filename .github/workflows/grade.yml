@@ -9,6 +9,9 @@ on:
       student-login:
         required: true
         description: GitHub login of the student to grade
+      student-repo:
+        required: true
+        description: Name of the repository to grade
       java-version:
         description: Version of Java to setup before running the grader
         default: '21'
@@ -25,11 +28,29 @@ permissions:
 
 env:
   REPORT_PATH: /tmp/results.json
+  METADATA_PATH: /tmp/metadata.json
 
 jobs:
   grade:
     runs-on: ubuntu-latest
     steps:
+      - name: 🗝️ Generate Korekto app token
+        id: korekto-token
+        uses: getsentry/action-github-app-token@v3
+        with:
+          app_id: ${{ vars.KOREKTO_APP_ID }}
+          private_key: ${{ secrets.KOREKTO_APP_PRIVATE_KEY }}
+          scope: ${{ inputs.student-login }}
+
+      - name: Gather student metadata
+        env:
+          STUDENT_LOGIN: ${{ inputs.student-login }}
+          STUDENT_REPO: ${{ inputs.student-repo }}
+          GH_TOKEN: ${{ steps.korekto-token.outputs.token }}
+        run: |
+          gh api "https://api.github.com/repos/$STUDENT_LOGIN/$STUDENT_REPO/commits/main" \
+            | jq '{commit_id: .sha, short_commit_id: .sha[:7], commit_url: .html_url}' > $METADATA_PATH
+
       - name: 📢 Send STARTED event
         uses: actions/github-script@v7
         env:
@@ -39,20 +60,26 @@ jobs:
           TASK_ID: ${{ inputs.task-id }}
         with:
           script: |
+            const fs = require('fs');
+
             const token = await core.getIDToken();
             const {
               CALLBACK_URL,
               STUDENT_LOGIN,
               GRADER_REPO,
               TASK_ID,
+              METADATA_PATH
             } = process.env;
+            
+            const metadata = JSON.parse(fs.readFileSync(METADATA_PATH));
             
             const payload = JSON.stringify({
               status: 'started',
               student_login: STUDENT_LOGIN,
               grader_repo: GRADER_REPO,
               task_id: TASK_ID,
-              full_log_url: `https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}`
+              full_log_url: `https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}`,
+              metadata: metadata
             }, null, 2);
             
             console.log(`Sending ${payload}`);
@@ -77,14 +104,6 @@ jobs:
         with:
           repository: ${{ inputs.grader-repo }}
 
-      - name: 🗝️ Generate Korekto app token
-        id: korekto-token
-        uses: getsentry/action-github-app-token@v3
-        with:
-          app_id: ${{ vars.KOREKTO_APP_ID }}
-          private_key: ${{ secrets.KOREKTO_APP_PRIVATE_KEY }}
-          scope: ${{ inputs.student-login }}
-
       - name: ♨️ Setup Java ${{ inputs.java-version }}
         uses: actions/setup-java@v4
         with:
@@ -98,13 +117,6 @@ jobs:
         env:
           STUDENT_LOGIN: ${{ inputs.student-login }}
           KOREKTO_TOKEN: ${{ steps.korekto-token.outputs.token }}
-
-      - name: 🗝️ Generate OIDC token to authenticate result request
-        id: oidc-token
-        uses: actions/github-script@v7
-        with:
-          result-encoding: string
-          script: return await core.getIDToken()
 
       - name: 📬 Send result to server
         uses: actions/github-script@v7
@@ -124,10 +136,14 @@ jobs:
               STUDENT_LOGIN,
               GRADER_REPO,
               TASK_ID,
+              METADATA_PATH,
               REPORT_PATH
             } = process.env;
             
+            const metadata = JSON.parse(fs.readFileSync(METADATA_PATH));
             const result = JSON.parse(fs.readFileSync(REPORT_PATH));
+            
+            const token = await core.getIDToken();
             
             const response = await fetch(CALLBACK_URL, {
               method: 'POST',
@@ -137,10 +153,11 @@ jobs:
                 grader_repo: GRADER_REPO,
                 task_id: TASK_ID,
                 full_log_url: `https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}`,
+                metadata: metadata,
                 details: result.details
               }),
               headers: {
-                'Authorization': `bearer ${OIDC_TOKEN}`,
+                'Authorization': `bearer ${token}`,
                 'Content-type': "application/json; charset=UTF-8"
               }
             });
@@ -170,20 +187,40 @@ jobs:
               OIDC_TOKEN,
               STUDENT_LOGIN,
               GRADER_REPO,
-              TASK_ID
+              TASK_ID,
+              METADATA_PATH
             } = process.env;
+            
+            const getMetadata = () => {
+              try {
+                return JSON.parse(fs.readFileSync(METADATA_PATH));
+              } catch (error) {
+                return {
+                  commit_id: '<unknown>',
+                  short_commit_id: '<unknown>',
+                  commit_url: '<unknown>'
+                }
+              }
+            };
+            
+            const metadata = getMetadata();
+            const obj_body = {
+              status: 'failure',
+              student_login: STUDENT_LOGIN,
+              grader_repo: GRADER_REPO,
+              task_id: TASK_ID,
+              full_log_url: `https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}`,
+              metadata: metadata
+            };
+            console.log(JSON.stringify(obj_body, null, 2));
+            
+            const token = await core.getIDToken();
             
             const response = await fetch(CALLBACK_URL, {
               method: 'POST',
-              body: JSON.stringify({
-                status: 'failure',
-                student_login: STUDENT_LOGIN,
-                grader_repo: GRADER_REPO,
-                task_id: TASK_ID,
-                full_log_url: `https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}`
-              }),
+              body: JSON.stringify(obj_body),
               headers: {
-                'Authorization': `bearer ${OIDC_TOKEN}`,
+                'Authorization': `bearer ${token}`,
                 'Content-type': "application/json; charset=UTF-8"
               }
             });
