@@ -147,7 +147,50 @@ jobs:
             
             if (!response.ok) {
               const responseBody = await response.text();
-              core.setFailed(`❌ Error sending start event: ${response.status} - ${responseBody}`);
+              core.setFailed(`❌ Error sending completed event: ${response.status} - ${responseBody}`);
             } else {
-              core.info(`✅ Successfully sent start event: ${response.status} - ${response.statusText}`);
+              core.info(`✅ Successfully sent completed event: ${response.status} - ${response.statusText}`);
+            }
+
+      - name: ❌ Send job failure to server
+        if: ${{ failure() }}
+        uses: actions/github-script@v7
+        env:
+          CALLBACK_URL: ${{ inputs.callback-url }}
+          OIDC_TOKEN: ${{ steps.oidc-token.outputs.result }}
+          STUDENT_LOGIN: ${{ inputs.student-login }}
+          GRADER_REPO: ${{ inputs.grader-repo }}
+          TASK_ID: ${{ inputs.task-id }}
+        with:
+          script: |
+            const fs = require('fs');
+            
+            const {
+              CALLBACK_URL,
+              OIDC_TOKEN,
+              STUDENT_LOGIN,
+              GRADER_REPO,
+              TASK_ID
+            } = process.env;
+            
+            const response = await fetch(CALLBACK_URL, {
+              method: 'POST',
+              body: JSON.stringify({
+                status: 'failure',
+                student_login: STUDENT_LOGIN,
+                grader_repo: GRADER_REPO,
+                task_id: TASK_ID,
+                full_log_url: `https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}`
+              }),
+              headers: {
+                'Authorization': `bearer ${OIDC_TOKEN}`,
+                'Content-type': "application/json; charset=UTF-8"
+              }
+            });
+            
+            if (!response.ok) {
+              const responseBody = await response.text();
+              core.setFailed(`❌ Error sending failure event: ${response.status} - ${responseBody}`);
+            } else {
+              core.info(`✅ Successfully sent failure event: ${response.status} - ${response.statusText}`);
             }
