@@ -1,4 +1,5 @@
 name: Grade an exercise
+run-name: Grade an exercise ${{ inputs.student-login }} / ${{ inputs.student-repo }}
 
 on:
   workflow_dispatch:
