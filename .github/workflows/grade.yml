@@ -22,6 +22,10 @@ on:
       task-id:
         required: true
         description: Unique identifier of the running task
+      grader-exec-v2:
+        required: false
+        description: Should use the new grader CLI
+        default: 'false'
 
 permissions:
   contents: read
@@ -113,8 +117,17 @@ jobs:
           cache: maven
 
       - name: 💯 Grade, hoping for the best!
+        if: ${{ inputs.grader-exec-v2 == 'false' }}
         run: |
           mvn compile exec:java -Dexec.args="-s=$STUDENT_LOGIN -r=$REPORT_PATH" -Dgithub_token="$KOREKTO_TOKEN"
+        env:
+          STUDENT_LOGIN: ${{ inputs.student-login }}
+          KOREKTO_TOKEN: ${{ steps.korekto-token.outputs.token }}
+
+      - name: 💯 Grade, hoping for the best! (v2)
+        if: ${{ inputs.grader-exec-v2 == 'true' }}
+        run: |
+          mvn compile exec:exec -Dgithub.login="$STUDENT_LOGIN" -Dgithub.token="$KOREKTO_TOKEN" -Dkorekto.report.path="$REPORT_PATH"
         env:
           STUDENT_LOGIN: ${{ inputs.student-login }}
           KOREKTO_TOKEN: ${{ steps.korekto-token.outputs.token }}
