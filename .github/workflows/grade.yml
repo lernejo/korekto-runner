@@ -81,29 +81,35 @@ jobs:
           private_key: ${{ secrets.KOREKTO_APP_PRIVATE_KEY }}
           owner: ${{ inputs.student-login }}
 
-      - name: 🔐 Select token for student repository access
+      - name: 🔓 Use default token for public repository
+        if: ${{ inputs.public-repository }}
         env:
-          PUBLIC_REPOSITORY: ${{ inputs.public-repository }}
-          APP_TOKEN: ${{ steps.korekto-token.outputs.token }}
           FALLBACK_TOKEN: ${{ github.token }}
         run: |
-          [ -n "$APP_TOKEN" ] && echo "::add-mask::$APP_TOKEN"
-          if [ "$PUBLIC_REPOSITORY" = "true" ]; then
-            [ -n "$FALLBACK_TOKEN" ] && echo "::add-mask::$FALLBACK_TOKEN"
-            echo "KOREKTO_TOKEN=$FALLBACK_TOKEN" >> "$GITHUB_ENV"
-          else
-            if [ -z "$APP_TOKEN" ]; then
-              echo "❌ Missing app token while public-repository is false"
-              exit 1
-            fi
-            echo "KOREKTO_TOKEN=$APP_TOKEN" >> "$GITHUB_ENV"
+          [ -n "$FALLBACK_TOKEN" ] && echo "::add-mask::$FALLBACK_TOKEN"
+          echo "KOREKTO_TOKEN=$FALLBACK_TOKEN" >> "$GITHUB_ENV"
+
+      - name: 🔐 Use app token for private repository
+        if: ${{ !inputs.public-repository }}
+        env:
+          APP_TOKEN: ${{ steps.korekto-token.outputs.token }}
+        run: |
+          if [ -z "$APP_TOKEN" ]; then
+            echo "❌ Missing app token while public-repository is false"
+            exit 1
           fi
+          echo "::add-mask::$APP_TOKEN"
+          echo "KOREKTO_TOKEN=$APP_TOKEN" >> "$GITHUB_ENV"
 
       - name: Gather student metadata
         env:
           STUDENT_LOGIN: ${{ inputs.student-login }}
           STUDENT_REPO: ${{ inputs.student-repo }}
         run: |
+          if [ -z "${KOREKTO_TOKEN:-}" ]; then
+            echo "❌ Missing token for student metadata retrieval"
+            exit 1
+          fi
           GH_TOKEN="$KOREKTO_TOKEN" gh api "https://api.github.com/repos/$STUDENT_LOGIN/$STUDENT_REPO/commits/main" \
             | jq '{commit_id: .sha, short_commit_id: .sha[:7], commit_url: .html_url}' > $METADATA_PATH
 
