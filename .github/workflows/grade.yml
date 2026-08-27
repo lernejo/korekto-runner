@@ -60,7 +60,10 @@ jobs:
           )
 
           for tool in "${tools[@]}"; do
-            is_private="$(gh api "repos/$tool" --jq '.private')"
+            if ! is_private="$(gh api "repos/$tool" --jq '.private')"; then
+              echo "❌ Failed to query tool repository metadata: $tool"
+              exit 1
+            fi
             if [ "$is_private" != "false" ]; then
               echo "❌ Tool repository is not public: $tool"
               exit 1
