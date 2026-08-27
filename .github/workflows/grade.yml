@@ -180,6 +180,10 @@ jobs:
       - name: 💯 Grade, hoping for the best!
         if: ${{ inputs.grader-exec-v2 == 'false' }}
         run: |
+          if [ -z "${KOREKTO_TOKEN:-}" ]; then
+            echo "❌ Missing token for grader execution"
+            exit 1
+          fi
           mvn compile exec:java -Dexec.args="-s=$STUDENT_LOGIN -r=$REPORT_PATH" -Dgithub_token="$KOREKTO_TOKEN"
         env:
           STUDENT_LOGIN: ${{ inputs.student-login }}
@@ -187,6 +191,10 @@ jobs:
       - name: 💯 Grade, hoping for the best! (v2)
         if: ${{ inputs.grader-exec-v2 == 'true' }}
         run: |
+          if [ -z "${KOREKTO_TOKEN:-}" ]; then
+            echo "❌ Missing token for grader execution"
+            exit 1
+          fi
           mvn compile exec:exec -Dgithub.login="$STUDENT_LOGIN" -Dgithub.token="$KOREKTO_TOKEN" -Dkorekto.report.path="$REPORT_PATH"
         env:
           STUDENT_LOGIN: ${{ inputs.student-login }}
