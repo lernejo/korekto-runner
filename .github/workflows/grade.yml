@@ -50,6 +50,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
+          # Keep this list in sync with the tools used by the public-repository path.
           tools=(
             "actions/github-script"
             "actions/checkout"
@@ -85,10 +86,6 @@ jobs:
         env:
           FALLBACK_TOKEN: ${{ github.token }}
         run: |
-          if [ -z "$FALLBACK_TOKEN" ]; then
-            echo "❌ Missing fallback token for public repository mode"
-            exit 1
-          fi
           echo "::add-mask::$FALLBACK_TOKEN"
           echo "KOREKTO_TOKEN=$FALLBACK_TOKEN" >> "$GITHUB_ENV"
 
