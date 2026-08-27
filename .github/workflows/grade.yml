@@ -26,6 +26,11 @@ on:
         required: false
         description: Should use the new grader CLI
         default: 'false'
+      public-repository:
+        required: false
+        type: boolean
+        description: Student repository is public and does not require app token
+        default: false
 
 permissions:
   contents: read
@@ -39,7 +44,32 @@ jobs:
   grade:
     runs-on: ubuntu-latest
     steps:
+      - name: 🔎 Assert all workflow tools are public
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          tools=(
+            "actions/create-github-app-token"
+            "actions/github-script"
+            "actions/checkout"
+            "actions/setup-java"
+            "cli/cli"
+            "jqlang/jq"
+            "apache/maven"
+          )
+
+          for tool in "${tools[@]}"; do
+            is_private="$(gh api "repos/$tool" --jq '.private')"
+            if [ "$is_private" != "false" ]; then
+              echo "❌ Tool repository is not public: $tool"
+              exit 1
+            fi
+            echo "✅ Public tool repository: $tool"
+          done
+
       - name: 🗝️ Generate Korekto app token
+        if: ${{ !inputs.public-repository }}
         uses: actions/create-github-app-token@v1
         id: korekto-token
         with:
@@ -47,11 +77,24 @@ jobs:
           private_key: ${{ secrets.KOREKTO_APP_PRIVATE_KEY }}
           owner: ${{ inputs.student-login }}
 
+      - name: 🔐 Select token for student repository access
+        id: repo-token
+        env:
+          PUBLIC_REPOSITORY: ${{ inputs.public-repository }}
+          APP_TOKEN: ${{ steps.korekto-token.outputs.token }}
+          FALLBACK_TOKEN: ${{ github.token }}
+        run: |
+          if [ "$PUBLIC_REPOSITORY" = "true" ]; then
+            echo "token=$FALLBACK_TOKEN" >> "$GITHUB_OUTPUT"
+          else
+            echo "token=$APP_TOKEN" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Gather student metadata
         env:
           STUDENT_LOGIN: ${{ inputs.student-login }}
           STUDENT_REPO: ${{ inputs.student-repo }}
-          GH_TOKEN: ${{ steps.korekto-token.outputs.token }}
+          GH_TOKEN: ${{ steps.repo-token.outputs.token }}
         run: |
           gh api "https://api.github.com/repos/$STUDENT_LOGIN/$STUDENT_REPO/commits/main" \
             | jq '{commit_id: .sha, short_commit_id: .sha[:7], commit_url: .html_url}' > $METADATA_PATH
@@ -122,7 +165,7 @@ jobs:
           mvn compile exec:java -Dexec.args="-s=$STUDENT_LOGIN -r=$REPORT_PATH" -Dgithub_token="$KOREKTO_TOKEN"
         env:
           STUDENT_LOGIN: ${{ inputs.student-login }}
-          KOREKTO_TOKEN: ${{ steps.korekto-token.outputs.token }}
+          KOREKTO_TOKEN: ${{ steps.repo-token.outputs.token }}
 
       - name: 💯 Grade, hoping for the best! (v2)
         if: ${{ inputs.grader-exec-v2 == 'true' }}
@@ -130,7 +173,7 @@ jobs:
           mvn compile exec:exec -Dgithub.login="$STUDENT_LOGIN" -Dgithub.token="$KOREKTO_TOKEN" -Dkorekto.report.path="$REPORT_PATH"
         env:
           STUDENT_LOGIN: ${{ inputs.student-login }}
-          KOREKTO_TOKEN: ${{ steps.korekto-token.outputs.token }}
+          KOREKTO_TOKEN: ${{ steps.repo-token.outputs.token }}
 
       - name: 📬 Send result to server
         uses: actions/github-script@v7
