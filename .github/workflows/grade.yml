@@ -45,6 +45,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: 🔎 Assert all workflow tools are public
+        if: ${{ inputs.public-repository }}
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -81,7 +82,6 @@ jobs:
           owner: ${{ inputs.student-login }}
 
       - name: 🔐 Select token for student repository access
-        id: repo-token
         env:
           PUBLIC_REPOSITORY: ${{ inputs.public-repository }}
           APP_TOKEN: ${{ steps.korekto-token.outputs.token }}
@@ -90,22 +90,21 @@ jobs:
           [ -n "$APP_TOKEN" ] && echo "::add-mask::$APP_TOKEN"
           if [ "$PUBLIC_REPOSITORY" = "true" ]; then
             [ -n "$FALLBACK_TOKEN" ] && echo "::add-mask::$FALLBACK_TOKEN"
-            echo "token=$FALLBACK_TOKEN" >> "$GITHUB_OUTPUT"
+            echo "KOREKTO_TOKEN=$FALLBACK_TOKEN" >> "$GITHUB_ENV"
           else
             if [ -z "$APP_TOKEN" ]; then
               echo "❌ Missing app token while public-repository is false"
               exit 1
             fi
-            echo "token=$APP_TOKEN" >> "$GITHUB_OUTPUT"
+            echo "KOREKTO_TOKEN=$APP_TOKEN" >> "$GITHUB_ENV"
           fi
 
       - name: Gather student metadata
         env:
           STUDENT_LOGIN: ${{ inputs.student-login }}
           STUDENT_REPO: ${{ inputs.student-repo }}
-          GH_TOKEN: ${{ steps.repo-token.outputs.token }}
         run: |
-          gh api "https://api.github.com/repos/$STUDENT_LOGIN/$STUDENT_REPO/commits/main" \
+          GH_TOKEN="$KOREKTO_TOKEN" gh api "https://api.github.com/repos/$STUDENT_LOGIN/$STUDENT_REPO/commits/main" \
             | jq '{commit_id: .sha, short_commit_id: .sha[:7], commit_url: .html_url}' > $METADATA_PATH
 
       - name: 📢 Send STARTED event
@@ -174,7 +173,6 @@ jobs:
           mvn compile exec:java -Dexec.args="-s=$STUDENT_LOGIN -r=$REPORT_PATH" -Dgithub_token="$KOREKTO_TOKEN"
         env:
           STUDENT_LOGIN: ${{ inputs.student-login }}
-          KOREKTO_TOKEN: ${{ steps.repo-token.outputs.token }}
 
       - name: 💯 Grade, hoping for the best! (v2)
         if: ${{ inputs.grader-exec-v2 == 'true' }}
@@ -182,7 +180,6 @@ jobs:
           mvn compile exec:exec -Dgithub.login="$STUDENT_LOGIN" -Dgithub.token="$KOREKTO_TOKEN" -Dkorekto.report.path="$REPORT_PATH"
         env:
           STUDENT_LOGIN: ${{ inputs.student-login }}
-          KOREKTO_TOKEN: ${{ steps.repo-token.outputs.token }}
 
       - name: 📬 Send result to server
         uses: actions/github-script@v7
