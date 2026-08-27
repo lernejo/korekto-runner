@@ -88,10 +88,13 @@ jobs:
           FALLBACK_TOKEN: ${{ github.token }}
         run: |
           [ -n "$APP_TOKEN" ] && echo "::add-mask::$APP_TOKEN"
-          [ -n "$FALLBACK_TOKEN" ] && echo "::add-mask::$FALLBACK_TOKEN"
           if [ "$PUBLIC_REPOSITORY" = "true" ]; then
             echo "token=$FALLBACK_TOKEN" >> "$GITHUB_OUTPUT"
           else
+            if [ -z "$APP_TOKEN" ]; then
+              echo "❌ Missing app token while public-repository is false"
+              exit 1
+            fi
             echo "token=$APP_TOKEN" >> "$GITHUB_OUTPUT"
           fi
 
