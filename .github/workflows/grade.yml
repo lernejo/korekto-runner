@@ -46,6 +46,8 @@ jobs:
     steps:
       - name: 🔎 Assert all workflow tools are public
         if: ${{ inputs.public-repository }}
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           tools=(
@@ -58,7 +60,10 @@ jobs:
           )
 
           for tool in "${tools[@]}"; do
-            is_private="$(curl -fsSL "https://api.github.com/repos/$tool" | jq -r '.private')"
+            if ! is_private="$(gh api "repos/$tool" --jq '.private')"; then
+              echo "❌ Failed to query tool repository metadata: $tool"
+              exit 1
+            fi
             if [ "$is_private" != "false" ]; then
               echo "❌ Tool repository is not public: $tool"
               exit 1
