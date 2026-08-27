@@ -81,36 +81,16 @@ jobs:
           private_key: ${{ secrets.KOREKTO_APP_PRIVATE_KEY }}
           owner: ${{ inputs.student-login }}
 
-      - name: 🔓 Use default token for public repository
-        if: ${{ inputs.public-repository }}
-        env:
-          FALLBACK_TOKEN: ${{ github.token }}
-        run: |
-          echo "::add-mask::$FALLBACK_TOKEN"
-          echo "KOREKTO_TOKEN=$FALLBACK_TOKEN" >> "$GITHUB_ENV"
-
-      - name: 🔐 Use app token for private repository
-        if: ${{ !inputs.public-repository }}
-        env:
-          APP_TOKEN: ${{ steps.korekto-token.outputs.token }}
-        run: |
-          if [ -z "$APP_TOKEN" ]; then
-            echo "❌ Missing app token while public-repository is false"
-            exit 1
-          fi
-          echo "::add-mask::$APP_TOKEN"
-          echo "KOREKTO_TOKEN=$APP_TOKEN" >> "$GITHUB_ENV"
-
       - name: Gather student metadata
         env:
           STUDENT_LOGIN: ${{ inputs.student-login }}
           STUDENT_REPO: ${{ inputs.student-repo }}
+          GH_TOKEN: ${{ inputs.public-repository && github.token || steps.korekto-token.outputs.token }}
         run: |
-          if [ -z "${KOREKTO_TOKEN:-}" ]; then
+          if [ -z "${GH_TOKEN:-}" ]; then
             echo "❌ Missing token for student metadata retrieval"
             exit 1
           fi
-          export GH_TOKEN="$KOREKTO_TOKEN"
           gh api "https://api.github.com/repos/$STUDENT_LOGIN/$STUDENT_REPO/commits/main" \
             | jq '{commit_id: .sha, short_commit_id: .sha[:7], commit_url: .html_url}' > $METADATA_PATH
 
@@ -184,6 +164,7 @@ jobs:
           mvn compile exec:java -Dexec.args="-s=$STUDENT_LOGIN -r=$REPORT_PATH" -Dgithub_token="$KOREKTO_TOKEN"
         env:
           STUDENT_LOGIN: ${{ inputs.student-login }}
+          KOREKTO_TOKEN: ${{ inputs.public-repository && github.token || steps.korekto-token.outputs.token }}
 
       - name: 💯 Grade, hoping for the best! (v2)
         if: ${{ inputs.grader-exec-v2 == 'true' }}
@@ -195,6 +176,7 @@ jobs:
           mvn compile exec:exec -Dgithub.login="$STUDENT_LOGIN" -Dgithub.token="$KOREKTO_TOKEN" -Dkorekto.report.path="$REPORT_PATH"
         env:
           STUDENT_LOGIN: ${{ inputs.student-login }}
+          KOREKTO_TOKEN: ${{ inputs.public-repository && github.token || steps.korekto-token.outputs.token }}
 
       - name: 📬 Send result to server
         uses: actions/github-script@v7
